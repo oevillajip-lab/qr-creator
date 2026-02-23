@@ -1,60 +1,92 @@
-import os
-import io
-import base64
-from flask import Flask, request, jsonify, send_file
-import qrcode
+import os, io, base64, qrcode
+from flask import Flask, request, send_file, jsonify
 from PIL import Image, ImageDraw, ImageOps, ImageFilter
 
 app = Flask(__name__)
 
-def generar_qr_motor(texto, estilo, qr_color="#000000", bg_color="#FFFFFF"):
-    # Configuración básica del QR
-    qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=40, border=0)
-    qr.add_data(texto)
-    qr.make(fit=True)
-    matrix = qr.get_matrix()
+def crear_fondo(w, h, mode, c1, c2):
+    if mode == "Transparente": return Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    if mode == "Blanco (Default)": return Image.new("RGBA", (w, h), (255, 255, 255, 255))
+    return Image.new("RGBA", (w, h), (255, 255, 255, 255)) # Por defecto blanco
+
+def generar_qr_v53_core(data_string, estilo, logo_bytes=None):
+    qr_temp = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=40, border=0)
+    qr_temp.add_data(data_string)
+    qr_temp.make(fit=True)
+    matrix = qr_temp.get_matrix()
     modules = len(matrix)
     size = modules * 40
-    
-    # Creamos la máscara del cuerpo según el estilo
+
+    # Lógica de Logo (si existe)
+    if logo_bytes:
+        logo_src = Image.open(io.BytesIO(logo_bytes)).convert("RGBA")
+        logo_res = ImageOps.contain(logo_src, (int(size * 0.23), int(size * 0.23)))
+        l_pos = ((size - logo_res.width) // 2, (size - logo_res.height) // 2)
+        # Crear Aura para que el QR no toque el logo (Tu lógica original)
+        base_mask = Image.new("L", (size, size), 0)
+        base_mask.paste(logo_res.split()[3], l_pos)
+        ImageDraw.floodfill(base_mask, (0, 0), 128)
+        solid_mask = base_mask.point(lambda p: 0 if p == 128 else 255)
+        aura_mask = solid_mask.filter(ImageFilter.MaxFilter((40 * 2) + 1))
+        aura_pixels = aura_mask.load()
+    else:
+        logo_res = None
+        aura_pixels = None
+
+    def get_m(r, c):
+        if 0 <= r < modules and 0 <= c < modules:
+            if aura_pixels and aura_pixels[c * 40 + 20, r * 40 + 20] > 20: return False
+            return matrix[r][c]
+        return False
+
+    def es_ojo_general(r, c): return (r<7 and c<7) or (r<7 and c>=modules-7) or (r>=modules-7 and c<7)
+
     mask_body = Image.new("L", (size, size), 0)
-    draw = ImageDraw.Draw(mask_body)
-    
+    draw_b = ImageDraw.Draw(mask_body)
+    RAD = 18; PAD = 2
+
     for r in range(modules):
         for c in range(modules):
-            if matrix[r][c]:
-                x, y = c * 40, r * 40
-                if estilo == "Liquid Pro (Gusano)":
-                    draw.rounded_rectangle([x+2, y+2, x+38, y+38], radius=18, fill=255)
-                elif estilo == "Circular (Puntos)":
-                    draw.ellipse([x+2, y+2, x+38, y+38], fill=255)
-                else: # Normal
-                    draw.rectangle([x, y, x+40, y+40], fill=255)
+            x, y = c * 40, r * 40
+            if es_ojo_general(r, c):
+                if matrix[r][c]: draw_b.rectangle([x, y, x+40, y+40], fill=255)
+                continue
+            
+            if estilo == "Liquid Pro (Gusano)":
+                if get_m(r, c):
+                    draw_b.rounded_rectangle([x+PAD, y+PAD, x+40-PAD, y+40-PAD], radius=RAD, fill=255)
+                    if get_m(r, c+1): draw_b.rounded_rectangle([x+PAD, y+PAD, x+80-PAD, y+40-PAD], radius=RAD, fill=255)
+                    if get_m(r+1, c): draw_b.rounded_rectangle([x+PAD, y+PAD, x+40-PAD, y+80-PAD], radius=RAD, fill=255)
+                    if get_m(r, c+1) and get_m(r+1, c) and get_m(r+1, c+1): draw_b.rectangle([x+20, y+20, x+60, y+60], fill=255)
+            elif estilo == "Circular (Puntos)":
+                if get_m(r, c): draw_b.ellipse([x+1, y+1, x+39, y+39], fill=255)
+            else: # Normal
+                if get_m(r, c): draw_b.rectangle([x, y, x+40, y+40], fill=255)
 
-    # Coloreado
-    img_final = Image.new("RGBA", (size, size), bg_color)
-    qr_color_layer = Image.new("RGBA", (size, size), qr_color)
-    img_final.paste(qr_color_layer, (0,0), mask=mask_body)
-    
-    # Guardar en memoria para enviar a la App
-    img_io = io.BytesIO()
-    img_final.save(img_io, 'PNG')
-    img_io.seek(0)
-    return img_io
+    canvas = Image.new("RGBA", (size + 80, size + 80), (255,255,255,255))
+    qr_layer = Image.new("RGBA", (size, size), (0,0,0,0))
+    qr_layer.paste((0,0,0,255), (0,0), mask=mask_body)
+    if logo_res: qr_layer.paste(logo_res, l_pos, logo_res)
+    canvas.paste(qr_layer, (40, 40), mask=qr_layer)
+
+    out = io.BytesIO()
+    canvas.save(out, format="PNG")
+    out.seek(0)
+    return out
 
 @app.route('/generate', methods=['POST'])
 def generate():
-    data = request.json
-    texto = data.get('texto', 'Comagro QR')
-    estilo = data.get('estilo', 'Normal (Cuadrado)')
-    qr_color = data.get('color', '#000000')
+    # Usamos multipart/form-data para poder recibir el logo
+    texto = request.form.get('texto', '')
+    estilo = request.form.get('estilo', 'Normal (Cuadrado)')
+    logo_file = request.files.get('logo')
+    logo_bytes = logo_file.read() if logo_file else None
     
     try:
-        buffer = generar_qr_motor(texto, estilo, qr_color)
-        return send_file(buffer, mimetype='image/png')
+        img_buffer = generar_qr_v53_core(texto, estilo, logo_bytes)
+        return send_file(img_buffer, mimetype='image/png')
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return str(e), 500
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
