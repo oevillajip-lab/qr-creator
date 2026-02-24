@@ -8,18 +8,9 @@ import tempfile
 app = Flask(__name__)
 
 # ============================================================================
-# VARIABLES GLOBALES DEL CÓDIGO PADRE (INTACTAS)
+# FUNCIONES SAGRADAS DEL CÓDIGO PADRE (UNIFICADAS V53)
 # ============================================================================
-qr_body_c1 = (0, 0, 0)
-qr_body_c2 = (33, 150, 243)
-eye_ext_color = (0, 0, 0)
-eye_int_color = (0, 0, 0)
-bg_c1 = (255, 255, 255) 
-bg_c2 = (240, 240, 240)
 
-# ============================================================================
-# FUNCIONES SAGRADAS DEL CÓDIGO PADRE (SIN MODIFICAR NI UNA LETRA)
-# ============================================================================
 def crear_fondo(w, h, mode, c1, c2, direction):
     if mode == "Transparente":
         return Image.new("RGBA", (w, h), (0, 0, 0, 0))
@@ -57,7 +48,13 @@ def generar_qr_clasico_engine(params, data_string):
     modo_color_qr = params['modo_color_qr']; grad_dir_qr = params['grad_dir_qr']
     usar_ojos_custom = params['usar_ojos_custom']; modo_fondo = params['modo_fondo']
     grad_dir_bg = params['grad_dir_bg']
-    
+    qr_body_c1 = params.get('qr_body_c1', (0,0,0))
+    qr_body_c2 = params.get('qr_body_c2', (33, 150, 243))
+    bg_c1 = params.get('bg_c1', (255,255,255))
+    bg_c2 = params.get('bg_c2', (240,240,240))
+    eye_ext_color = params.get('eye_ext_color', (0,0,0))
+    eye_int_color = params.get('eye_int_color', (0,0,0))
+
     is_intelligent_jpg = False
     if logo_path and logo_path.lower().endswith(('.jpg', '.jpeg', '.bmp')):
         is_intelligent_jpg = True
@@ -66,9 +63,6 @@ def generar_qr_clasico_engine(params, data_string):
     if not logo_path or not os.path.exists(logo_path): usar_logo = False
 
     try:
-        OUTPUT_DIR = "output_qr"
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-        
         qr_temp = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=40, border=0)
         qr_temp.add_data(data_string); qr_temp.make(fit=True)
         matrix = qr_temp.get_matrix(); modules = len(matrix); size = modules * 40
@@ -127,15 +121,12 @@ def generar_qr_clasico_engine(params, data_string):
         draw_b = ImageDraw.Draw(mask_body); draw_ext = ImageDraw.Draw(mask_eye_ext); draw_int = ImageDraw.Draw(mask_eye_int)
         RAD_LIQUID = 18; PAD = 2
 
-        # --- BUCLE DE DIBUJO ---
         for r in range(modules):
             for c in range(modules):
                 x, y = c * 40, r * 40
-                
-                # SELECCIÓN DE DRAW Y LÓGICA DE SALTO PARA OJOS CIRCULARES
                 if es_ojo_interno(r, c): draw = draw_int
                 elif es_ojo_externo(r, c): draw = draw_ext
-                elif es_ojo_general(r, c): continue # Espacio vacio del ojo
+                elif es_ojo_general(r, c): continue
                 else: draw = draw_b
                 
                 if estilo == "Liquid Pro (Gusano)":
@@ -144,60 +135,28 @@ def generar_qr_clasico_engine(params, data_string):
                         if get_m(r, c+1): draw.rounded_rectangle([x+PAD, y+PAD, x+80-PAD, y+40-PAD], radius=RAD_LIQUID, fill=255)
                         if get_m(r+1, c): draw.rounded_rectangle([x+PAD, y+PAD, x+40-PAD, y+80-PAD], radius=RAD_LIQUID, fill=255)
                         if get_m(r, c+1) and get_m(r+1, c) and get_m(r+1, c+1): draw.rectangle([x+20, y+20, x+60, y+60], fill=255)
-                
                 elif estilo == "Normal (Cuadrado)":
                     if get_m(r, c): draw.rectangle([x, y, x+40, y+40], fill=255)
-                
-                elif estilo == "Barras (Vertical)":
-                    if get_m(r, c):
-                        if es_ojo_general(r,c): draw.rectangle([x, y, x+40, y+40], fill=255)
-                        else:
-                            draw.rounded_rectangle([x+4, y, x+36, y+40], radius=10, fill=255)
-                            if get_m(r+1, c) and not es_ojo_general(r+1, c): draw.rectangle([x+4, y+20, x+36, y+60], fill=255)
-                
-                # --- CORRECCIÓN AQUÍ PARA CIRCULAR ---
                 elif estilo == "Circular (Puntos)":
-                    # Si es ojo, NO DIBUJAMOS PUNTOS AQUÍ (Lo hacemos geometrico despues)
-                    if es_ojo_general(r, c):
-                        continue
-                    
-                    # Si es cuerpo, dibujamos el punto normal
-                    if get_m(r, c): 
-                        draw_b.ellipse([x+1, y+1, x+39, y+39], fill=255)
+                    if es_ojo_general(r, c): continue
+                    if get_m(r, c): draw_b.ellipse([x+1, y+1, x+39, y+39], fill=255)
 
-        # --- DIBUJO GEOMÉTRICO DE OJOS (SOLO PARA ESTILO CIRCULAR) ---
         if estilo == "Circular (Puntos)":
             def draw_geo_eye(r_start, c_start):
-                x = c_start * 40
-                y = r_start * 40
+                x, y = c_start * 40, r_start * 40
                 eye_size = 7 * 40
-                
-                # 1. Anillo Externo (En mascara Externa)
                 draw_ext.ellipse([x, y, x + eye_size, y + eye_size], fill=255)
                 draw_ext.ellipse([x + 40, y + 40, x + eye_size - 40, y + eye_size - 40], fill=0)
-                
-                # 2. Punto Interno (En mascara Interna)
                 draw_int.ellipse([x + 80, y + 80, x + eye_size - 80, y + eye_size - 80], fill=255)
+            draw_geo_eye(0, 0); draw_geo_eye(0, modules-7); draw_geo_eye(modules-7, 0)
 
-            # Dibujar los 3 ojos
-            draw_geo_eye(0, 0)              # Arriba Izquierda
-            draw_geo_eye(0, modules-7)      # Arriba Derecha
-            draw_geo_eye(modules-7, 0)      # Abajo Izquierda
-
-        # --- COLOREADO FINAL ---
         img_body_color = Image.new("RGBA", (size, size), (0,0,0,0)); draw_grad = ImageDraw.Draw(img_body_color)
-        if modo_color_qr == "Automático (Logo)" and usar_logo:
-            try: c_s = logo_res.resize((1,1)).getpixel((0,0))[:3]
-            except: c_s = (0,0,0)
-            for i in range(size):
-                r = i/size; col = tuple(int(c_s[j]*(1-r)) for j in range(3)) + (255,); draw_grad.line([(0,i),(size,i)], fill=col)
-        elif modo_color_qr == "Sólido (Un Color)": draw_grad.rectangle([0,0,size,size], fill=qr_body_c1 + (255,))
-        elif modo_color_qr == "Degradado Custom":
+        if modo_color_qr == "Degradado Custom":
             for i in range(size):
                 r = i/size; col = tuple(int(qr_body_c1[j]*(1-r)+qr_body_c2[j]*r) for j in range(3)) + (255,)
                 if grad_dir_qr == "Vertical": draw_grad.line([(0,i),(size,i)], fill=col)
                 elif grad_dir_qr == "Horizontal": draw_grad.line([(i,0),(i,size)], fill=col)
-        else: draw_grad.rectangle([0,0,size,size], fill=(0,0,0,255))
+        else: draw_grad.rectangle([0,0,size,size], fill=qr_body_c1 + (255,))
 
         if usar_ojos_custom:
             img_ext_color = Image.new("RGBA", (size, size), eye_ext_color + (255,))
@@ -210,61 +169,41 @@ def generar_qr_clasico_engine(params, data_string):
         qr_layer.paste(img_body_color, (0,0), mask=mask_body)
         qr_layer.paste(img_ext_color, (0,0), mask=mask_eye_ext)
         qr_layer.paste(img_int_color, (0,0), mask=mask_eye_int)
-        
         if usar_logo: qr_layer.paste(logo_res, l_pos, logo_res)
         canvas_final.paste(qr_layer, (BORDER, BORDER), mask=qr_layer)
 
-        suffix = "Inteligente" if is_intelligent_jpg else "Clasico"
-        name = f"QR_{suffix}_{estilo.split()[0]}.png"
-        full_path = os.path.join(OUTPUT_DIR, name)
-        canvas_final.save(full_path, quality=100)
-        
-        return True, f"QR Generado:\n{name}", os.path.abspath(OUTPUT_DIR)
-        
+        img_io = io.BytesIO()
+        canvas_final.save(img_io, 'PNG', quality=100)
+        img_io.seek(0)
+        return img_io
     except Exception as e:
-        return False, str(e), ""
+        return str(e)
 
-
-# ============================================================================
-# EL PUENTE: CONECTA LA APP DEL CELULAR CON TU CÓDIGO PADRE
-# ============================================================================
 @app.route('/generate', methods=['POST'])
 def generate():
-    texto = request.form.get('texto', '')
-    estilo = request.form.get('estilo', 'Normal (Cuadrado)')
-    logo_file = request.files.get('logo')
-
-    # Guardar logo temporalmente si se subió
-    temp_logo_path = ""
-    if logo_file:
-        temp_logo_path = "temp_logo.png"
-        logo_file.save(temp_logo_path)
-
-    # Forzamos Blanco y Negro como se solicitó para el celular, llamando al Código Padre
-    params_padre = {
-        'logo_path': temp_logo_path,
+    texto = request.form.get('texto', 'COMAGRO')
+    estilo = request.form.get('estilo', 'Liquid Pro (Gusano)')
+    
+    # Parámetros extraídos de la lógica de PC
+    params = {
+        'logo_path': 'temp_logo.png' if request.files.get('logo') else None,
         'estilo': estilo,
-        'modo_color_qr': "Sólido (Un Color)",
+        'modo_color_qr': "Degradado Custom",
         'grad_dir_qr': "Vertical",
         'usar_ojos_custom': False,
         'modo_fondo': "Blanco (Default)",
-        'grad_dir_bg': "Vertical"
+        'grad_dir_bg': "Vertical",
+        'qr_body_c1': (0,0,0),
+        'qr_body_c2': (33, 150, 243)
     }
-
-    success, msg, path = generar_qr_clasico_engine(params_padre, texto)
-
-    if success:
-        # Extraer el nombre de archivo del mensaje y enviarlo al celular
-        name = msg.split('\n')[1]
-        full_path = os.path.join(path, name)
-        return send_file(full_path, mimetype='image/png')
-    else:
-        return str(msg), 500
-
-@app.route('/', methods=['GET'])
-def home():
-    return "Motor CÓDIGO PADRE V53 activado y escuchando."
+    
+    if params['logo_path']:
+        request.files.get('logo').save(params['logo_path'])
+    
+    result = generar_qr_clasico_engine(params, texto)
+    if isinstance(result, io.BytesIO):
+        return send_file(result, mimetype='image/png')
+    return result, 500
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=10000)
